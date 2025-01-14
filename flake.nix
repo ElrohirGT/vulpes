@@ -53,7 +53,7 @@
       test = zenv.app [] "zig build test -- \"$@\"";
 
       # nix run .#docs
-      docs = zenv.app [] "zig build docs -- \"$@\"";
+      # docs = zenv.app [] "zig build docs -- \"$@\"";
     });
 
     packages = forAllSystems (system: let
