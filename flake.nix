@@ -31,6 +31,31 @@
       };
     });
 
+    apps = forAllSystems (system: let
+      pkgs = nixpkgsFor.${system};
+      zenv = zenvFor.${system};
+    in {
+      # For bundling with nix bundle for running outside of nix
+      # example: https://github.com/ralismark/nix-appimage
+      # Usage:
+      # nix bundle .#target.x86_64-linux-gnu
+      bundle.target = pkgs.lib.genAttrs zenv.lib.allTargetTriples (target: let
+        pkg = self.outputs.packages.${system}.target.${target};
+      in {
+        type = "app";
+        program = "${pkg}/bin/default";
+      });
+
+      # nix run .#build
+      build = zenv.app [] "zig build \"$@\"";
+
+      # nix run .#test
+      test = zenv.app [] "zig build test -- \"$@\"";
+
+      # nix run .#docs
+      docs = zenv.app [] "zig build docs -- \"$@\"";
+    });
+
     packages = forAllSystems (system: let
       pkgs = nixpkgsFor.${system};
       zenv = zenvFor.${system};
