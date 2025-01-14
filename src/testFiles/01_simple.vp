@@ -1,0 +1,9 @@
+main env flags =
+	5
+
+---
+TopLevelName main
+FuncArgument env
+FuncArgument flags
+Assignment
+IntLiteral 5

@@ -1,0 +1,53 @@
+addStatic = 2 + 10
+addPartial a = a+57
+addGeneric a b= a+b
+
+sub a b = a-b
+mult a b = a*b
+div a b = a/b
+
+---
+TopLevelName addStatic
+Assignment
+IntLiteral 2
+SumOperator
+IntLiteral 10
+
+TopLevelName addPartial
+FuncArgument a
+Assignment
+Variable a
+SumOperator
+IntLiteral 57
+
+TopLevelName addGeneric
+FuncArgument a
+FuncArgument b
+Assignment
+Variable a
+SumOperator
+Variable b
+
+TopLevelName sub
+FuncArgument a
+FuncArgument b
+Assignment
+Variable a
+MinusOperator
+Variable b
+
+TopLevelName mult
+FuncArgument a
+FuncArgument b
+Assignment
+Variable a
+MultOperator
+Variable b
+
+TopLevelName div
+FuncArgument a
+FuncArgument b
+Assignment
+Variable a
+DivisionOperator
+Variable b
