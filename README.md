@@ -1,4 +1,5 @@
-[![CI](https://github.com/ElrohirGT/vulpes/actions/workflows/Buid%20and%20Test.yml/badge.svg)](https://github.com/ElrohirGT/vulpes/actions/workflows/Buid%20and%20Test.yml)
+[![CI](https://github.com/ElrohirGT/vulpes/actions/workflows/CI.yml/badge.svg)](https://github.com/ElrohirGT/vulpes/actions/workflows/CI.yml)
+[![Bundling for Various Platforms](https://github.com/ElrohirGT/vulpes/actions/workflows/Bundler.yml/badge.svg)](https://github.com/ElrohirGT/vulpes/actions/workflows/Bundler.yml)
 
 # Vulpes
 
