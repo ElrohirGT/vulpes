@@ -43,7 +43,8 @@
         pkg = self.outputs.packages.${system}.target.${target};
       in {
         type = "app";
-        program = "${pkg}/bin/default";
+        program = pkgs.lib.getExe pkg;
+        # program = "${pkg}/bin/vulpes";
       });
 
       # nix run .#build
@@ -76,6 +77,7 @@
             # This disables LD_LIBRARY_PATH mangling, binary patching etc...
             # The package won't be usable inside nix.
             zigDisableWrap = true;
+            meta.mainProgram = "vulpes";
           }
           // pkgs.lib.optionalAttrs (!builtins.pathExists ./build.zig.zon) {
             pname = "my-zig-project";
