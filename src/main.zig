@@ -1,17 +1,26 @@
 const std = @import("std");
+const reader = @import("./reader.zig");
 
 const TokenType = enum {
     FuncArgument,
     IntLiteral,
-    Assignment,
     TopLevelName,
     Variable,
+
+    // Assignment operators
+    Assignment,
+    Colon,
 
     // Operation tokens
     SumOperator,
     MinusOperator,
     MultOperator,
     DivisionOperator,
+
+    // Comments
+    Comment,
+    DocComment,
+    EndComment,
 };
 
 const Token = struct {
@@ -56,11 +65,11 @@ const Token = struct {
 /// Represents a state of the parser.
 /// Normally indicates what the parser will search for!
 const State = enum {
-    None,
     TopLevelDeclaration,
+    DeclarationParams,
     DeclarationBody,
-    DeclarationBodyEnd1,
-    DeclarationBodyEnd2,
+    FirmDeclaration,
+    EndComment,
 };
 
 pub fn main() !void {
@@ -76,83 +85,156 @@ pub fn main() !void {
     var file = std.fs.cwd().openFile(filePath, .{}) catch unreachable;
     defer file.close();
 
-    _ = try tokenize(alloc, file.reader().any());
+    var peek_reader = reader.PeekableReader.fromReader(file.reader().any());
+    _ = try tokenize(alloc, &peek_reader);
 }
 
-fn tokenize(alloc: std.mem.Allocator, reader: std.io.AnyReader) !std.ArrayList(Token) {
-    var char_buffer: [1]u8 = undefined;
-    var parser_state = State.None;
+fn tokenize(alloc: std.mem.Allocator, r: *reader.PeekableReader) !std.ArrayList(Token) {
+    var parser_state = State.TopLevelDeclaration;
     var tokens = std.ArrayList(Token).init(alloc);
 
-    while (try reader.read(&char_buffer) != 0) {
-        const char = char_buffer[0];
-        std.log.debug("Consumed: `{c}`. On State: {}", .{ char, parser_state });
+    while (r.peekByte()) |peekedChar| {
+        std.log.debug("Peek: `{c}`. On State: {}", .{ peekedChar, parser_state });
 
         switch (parser_state) {
-            .None => {
-                switch (char) {
-                    ' ', '\t', '\r', '\n' => continue,
+            .EndComment => {
+                var buffer = std.ArrayList(u8).init(alloc);
+                defer buffer.deinit();
+
+                try r.streamUntilEnd(buffer.writer());
+                try tokens.append(.{ .value = try buffer.toOwnedSlice(), .type = .EndComment });
+            },
+            .TopLevelDeclaration => {
+                switch (peekedChar) {
+                    ' ', '\t', '\r', '\n' => {
+                        _ = r.readByte() catch unreachable;
+                        continue;
+                    },
                     '0'...'9' => return error.ExpectedTopLevelDeclarationButGotNumber,
+                    '-' => endCommentBlock: {
+                        _ = r.readByte() catch unreachable;
+
+                        if (r.peekByte() != '-') {
+                            break :endCommentBlock;
+                        }
+                        _ = r.readByte() catch unreachable;
+
+                        if (r.peekByte() != '-') {
+                            break :endCommentBlock;
+                        }
+                        _ = r.readByte() catch unreachable;
+
+                        parser_state = .EndComment;
+                    },
                     else => {
                         var topLevelNameBuffer = std.ArrayList(u8).init(alloc);
                         defer topLevelNameBuffer.deinit();
-                        try topLevelNameBuffer.append(char);
 
-                        try reader.streamUntilDelimiter(topLevelNameBuffer.writer(), ' ', null);
+                        try r.streamUntilWhitespace(topLevelNameBuffer.writer());
                         const topLevelName = try topLevelNameBuffer.toOwnedSlice();
 
                         try tokens.append(.{ .value = topLevelName, .type = .TopLevelName });
-                        parser_state = .TopLevelDeclaration;
+
+                        r.readWhileWhitespaceOrNotEOL();
+                        if (r.peekByte()) |byte| {
+                            if (byte == ':') {
+                                _ = r.readByte() catch unreachable;
+                                try tokens.append(.{ .type = .Colon });
+                                parser_state = .FirmDeclaration;
+                            } else {
+                                parser_state = .DeclarationParams;
+                            }
+                        }
                     },
                 }
             },
-            .TopLevelDeclaration => {
-                switch (char) {
-                    ' ', '\t', '\r', '\n' => continue,
+            .DeclarationParams => {
+                switch (peekedChar) {
+                    ' ', '\t', '\r', '\n' => {
+                        _ = r.readByte() catch unreachable;
+                        continue;
+                    },
                     '0'...'9' => return error.ExpectedArgumentOrEqualsButGotNumber,
                     '=' => {
+                        _ = r.readByte() catch unreachable;
                         try tokens.append(.{ .type = .Assignment });
                         parser_state = .DeclarationBody;
                     },
                     else => {
                         var argNameBuffer = std.ArrayList(u8).init(alloc);
                         defer argNameBuffer.deinit();
-                        try argNameBuffer.append(char);
 
-                        try reader.streamUntilDelimiter(argNameBuffer.writer(), ' ', null);
+                        try r.streamUntilWhitespace(argNameBuffer.writer());
                         const argName = try argNameBuffer.toOwnedSlice();
 
                         try tokens.append(.{ .value = argName, .type = .FuncArgument });
-                        // parser_state = .TopLevelDeclaration;
-                    },
-                }
-            },
-            .DeclarationBodyEnd1 => {
-                switch (char) {
-                    ' ', '\t', '\r' => continue,
-                    '\n' => {
-                        parser_state = .DeclarationBodyEnd2;
-                        continue;
-                    },
-                    else => {
-                        try declaration_body(alloc, &reader, char, &parser_state, &tokens);
-                    },
-                }
-            },
-            .DeclarationBodyEnd2 => {
-                switch (char) {
-                    ' ', '\t', '\r' => continue,
-                    '\n' => {
-                        parser_state = .None;
-                    },
-                    else => {
-                        try declaration_body(alloc, &reader, char, &parser_state, &tokens);
                     },
                 }
             },
             .DeclarationBody => {
-                try declaration_body(alloc, &reader, char, &parser_state, &tokens);
+                switch (peekedChar) {
+                    ' ', '\t', '\r' => {
+                        _ = r.readByte() catch unreachable;
+                        continue;
+                    },
+                    '\n' => innerSwitch: {
+                        _ = r.readByte() catch unreachable;
+
+                        std.log.debug("ONE linebreak! {} == {?}", .{ '\n', r.peekByte() });
+                        if (r.peekByte() != '\n') {
+                            break :innerSwitch;
+                        }
+                        _ = r.readByte() catch unreachable;
+                        r.readWhileWhitespaceOrNotEOL();
+
+                        std.log.debug("TWO linebreak! {} == {?}", .{ '\n', r.peekByte() });
+                        r.readWhileWhitespaceOrNotEOL();
+
+                        parser_state = .TopLevelDeclaration;
+                    },
+                    '0'...'9' => {
+                        const value: []const u8 = get_value: {
+                            var buffer = std.ArrayList(u8).init(alloc);
+                            defer buffer.deinit();
+
+                            try r.streamUntilNotNumber(buffer.writer());
+                            break :get_value try buffer.toOwnedSlice();
+                        };
+
+                        try tokens.append(.{ .value = value, .type = .IntLiteral });
+                    },
+                    // Operators
+                    '+' => {
+                        _ = r.readByte() catch unreachable;
+                        try tokens.append(.{ .type = .SumOperator });
+                    },
+                    '-' => {
+                        _ = r.readByte() catch unreachable;
+                        try tokens.append(.{ .type = .MinusOperator });
+                    },
+                    '*' => {
+                        _ = r.readByte() catch unreachable;
+                        try tokens.append(.{ .type = .MultOperator });
+                    },
+                    '/' => {
+                        _ = r.readByte() catch unreachable;
+                        try tokens.append(.{ .type = .DivisionOperator });
+                    },
+
+                    else => {
+                        const value: []const u8 = get_value: {
+                            var buffer = std.ArrayList(u8).init(alloc);
+                            defer buffer.deinit();
+
+                            try r.streamUntilWhitespace(buffer.writer());
+                            break :get_value try buffer.toOwnedSlice();
+                        };
+
+                        try tokens.append(.{ .value = value, .type = .Variable });
+                    },
+                }
             },
+            .FirmDeclaration => unreachable,
         }
 
         const tokens_str = try Token.arrayToString(tokens, alloc);
@@ -172,6 +254,7 @@ test "Can tokenize simple body" {
         \\ 5
     ;
     var stream = std.io.fixedBufferStream(fileContents);
+    var stream_reader = reader.PeekableReader.fromReader(stream.reader().any());
 
     var expectedTokens = try std.ArrayList(Token).initCapacity(alloc, 5);
     defer expectedTokens.deinit();
@@ -182,7 +265,7 @@ test "Can tokenize simple body" {
     try expectedTokens.append(.{ .type = .Assignment });
     try expectedTokens.append(.{ .type = .IntLiteral, .value = "5" });
 
-    var tokens = try tokenize(alloc, stream.reader().any());
+    var tokens = try tokenize(alloc, &stream_reader);
     defer tokens.deinit();
     defer for (tokens.items) |value| {
         value.deinit(alloc);
@@ -201,7 +284,7 @@ test "Can tokenize simple body" {
 
 fn declaration_body(
     alloc: std.mem.Allocator,
-    reader: *const std.io.AnyReader,
+    r: *reader.PeekableReader,
     char: u8,
     parser_state: *State,
     tokens: *std.ArrayList(Token),
@@ -219,7 +302,7 @@ fn declaration_body(
                 try buffer.append(char);
 
                 while (true) {
-                    const byte = reader.readByte() catch |err| switch (err) {
+                    const byte = r.readByte() catch |err| switch (err) {
                         error.EndOfStream => break,
                         else => return err,
                     };
@@ -245,7 +328,7 @@ fn declaration_body(
                 try buffer.append(char);
 
                 while (true) {
-                    const byte = reader.readByte() catch |err| switch (err) {
+                    const byte = r.readByte() catch |err| switch (err) {
                         error.EndOfStream => break,
                         else => return err,
                     };
@@ -304,6 +387,7 @@ test "Test files" {
             return error.NoLanguageContentSupplied;
         };
         var stream = std.io.fixedBufferStream(contents);
+        var stream_reader = reader.PeekableReader.fromReader(stream.reader().any());
 
         const expectedContents = iter.next() orelse {
             log.err("File `{s}` no expected tokens supplied! Please write some vulpes code and then write `---` to separate the expected content!", .{entry.path});
@@ -338,7 +422,7 @@ test "Test files" {
             }
         }
 
-        var tokens = try tokenize(std.testing.allocator, stream.reader().any());
+        var tokens = try tokenize(std.testing.allocator, &stream_reader);
         defer tokens.deinit();
         defer for (tokens.items) |value| {
             value.deinit(std.testing.allocator);
