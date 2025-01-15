@@ -36,5 +36,3 @@ jobs:
         run: nix run .#build
       - name: Tests
         run: nix run .#test
-      - name: Bundle for Linux GNU
-        run: nix bundle .#target.x86_64-linux-gnu
