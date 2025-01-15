@@ -23,12 +23,44 @@ const Token = struct {
             alloc.free(innerStr);
         }
     }
+
+    pub fn toString(s: Token, alloc: std.mem.Allocator) ![]const u8 {
+        var buffer = std.ArrayList(u8).init(alloc);
+        defer buffer.deinit();
+
+        try std.fmt.format(
+            buffer.writer(),
+            "[type: {}, value: {?s}]",
+            .{ s.type, s.value },
+        );
+        return try buffer.toOwnedSlice();
+    }
+
+    pub fn arrayToString(s: std.ArrayList(Token), alloc: std.mem.Allocator) ![]const u8 {
+        var buffer = std.ArrayList(u8).init(alloc);
+        defer buffer.deinit();
+
+        try std.fmt.format(buffer.writer(), "[", .{});
+        for (s.items) |value| {
+            const val = try value.toString(alloc);
+            defer alloc.free(val);
+
+            try std.fmt.format(buffer.writer(), "{s}\n", .{val});
+        }
+        try std.fmt.format(buffer.writer(), "]", .{});
+
+        return try buffer.toOwnedSlice();
+    }
 };
 
+/// Represents a state of the parser.
+/// Normally indicates what the parser will search for!
 const State = enum {
     None,
     TopLevelDeclaration,
     DeclarationBody,
+    DeclarationBodyEnd1,
+    DeclarationBodyEnd2,
 };
 
 pub fn main() !void {
@@ -55,7 +87,6 @@ fn tokenize(alloc: std.mem.Allocator, reader: std.io.AnyReader) !std.ArrayList(T
     while (try reader.read(&char_buffer) != 0) {
         const char = char_buffer[0];
         std.log.debug("Consumed: `{c}`. On State: {}", .{ char, parser_state });
-        std.log.debug("Tokens: {any}", .{tokens.items});
 
         switch (parser_state) {
             .None => {
@@ -96,35 +127,39 @@ fn tokenize(alloc: std.mem.Allocator, reader: std.io.AnyReader) !std.ArrayList(T
                     },
                 }
             },
-            .DeclarationBody => {
+            .DeclarationBodyEnd1 => {
                 switch (char) {
-                    ' ', '\t', '\r', '\n' => continue,
-                    '0'...'9' => {
-                        const value: []const u8 = get_value: {
-                            var buffer = std.ArrayList(u8).init(alloc);
-                            defer buffer.deinit();
-                            try buffer.append(char);
-
-                            while (true) {
-                                const byte = reader.readByte() catch |err| switch (err) {
-                                    error.EndOfStream => break,
-                                    else => return err,
-                                };
-                                switch (byte) {
-                                    ' ', '\t', '\r', '\n' => break,
-                                    else => try buffer.append(byte),
-                                }
-                            }
-
-                            break :get_value try buffer.toOwnedSlice();
-                        };
-
-                        try tokens.append(.{ .value = value, .type = .IntLiteral });
+                    ' ', '\t', '\r' => continue,
+                    '\n' => {
+                        parser_state = .DeclarationBodyEnd2;
+                        continue;
                     },
-                    else => {},
+                    else => {
+                        try declaration_body(alloc, &reader, char, &parser_state, &tokens);
+                    },
                 }
             },
+            .DeclarationBodyEnd2 => {
+                switch (char) {
+                    ' ', '\t', '\r' => continue,
+                    '\n' => {
+                        parser_state = .None;
+                    },
+                    else => {
+                        try declaration_body(alloc, &reader, char, &parser_state, &tokens);
+                    },
+                }
+            },
+            .DeclarationBody => {
+                try declaration_body(alloc, &reader, char, &parser_state, &tokens);
+            },
         }
+
+        const tokens_str = try Token.arrayToString(tokens, alloc);
+        defer alloc.free(tokens_str);
+
+        std.log.debug("AFTER STATE: {}", .{parser_state});
+        std.log.debug("Tokens: {s}\n", .{tokens_str});
     }
 
     return tokens;
@@ -161,6 +196,75 @@ test "Can tokenize simple body" {
         } else {
             try std.testing.expectEqual(expected.value, token.value);
         }
+    }
+}
+
+fn declaration_body(
+    alloc: std.mem.Allocator,
+    reader: *const std.io.AnyReader,
+    char: u8,
+    parser_state: *State,
+    tokens: *std.ArrayList(Token),
+) !void {
+    switch (char) {
+        ' ', '\t', '\r' => {},
+        '\n' => {
+            parser_state.* = .DeclarationBodyEnd1;
+            return;
+        },
+        '0'...'9' => {
+            const value: []const u8 = get_value: {
+                var buffer = std.ArrayList(u8).init(alloc);
+                defer buffer.deinit();
+                try buffer.append(char);
+
+                while (true) {
+                    const byte = reader.readByte() catch |err| switch (err) {
+                        error.EndOfStream => break,
+                        else => return err,
+                    };
+                    switch (byte) {
+                        ' ', '\t', '\r' => break,
+                        '\n' => {
+                            parser_state.* = .DeclarationBodyEnd1;
+                            break;
+                        },
+                        else => try buffer.append(byte),
+                    }
+                }
+
+                break :get_value try buffer.toOwnedSlice();
+            };
+
+            try tokens.append(.{ .value = value, .type = .IntLiteral });
+        },
+        else => {
+            const value: []const u8 = get_value: {
+                var buffer = std.ArrayList(u8).init(alloc);
+                defer buffer.deinit();
+                try buffer.append(char);
+
+                while (true) {
+                    const byte = reader.readByte() catch |err| switch (err) {
+                        error.EndOfStream => break,
+                        else => return err,
+                    };
+
+                    switch (byte) {
+                        ' ', '\t', '\r' => break,
+                        '\n' => {
+                            parser_state.* = .DeclarationBodyEnd1;
+                            break;
+                        },
+                        else => try buffer.append(byte),
+                    }
+                }
+
+                break :get_value try buffer.toOwnedSlice();
+            };
+
+            try tokens.append(.{ .value = value, .type = .Variable });
+        },
     }
 }
 
@@ -240,6 +344,8 @@ test "Test files" {
             value.deinit(std.testing.allocator);
         };
 
+        // try std.testing.expectEqualDeep(expectedTokens, tokens);
+
         const file_test_result = file_test_result: {
             for (tokens.items, 0..) |token, i| {
                 const expected = expectedTokens.items[i];
@@ -253,7 +359,18 @@ test "Test files" {
         };
 
         file_test_result catch |err| {
-            log.err("Failed test for file: `{s}`. \n ERROR: {}", .{ entry.path, err });
+            const tokens_str = try Token.arrayToString(tokens, std.testing.allocator);
+            defer std.testing.allocator.free(tokens_str);
+
+            const expected_str = try Token.arrayToString(expectedTokens, std.testing.allocator);
+            defer std.testing.allocator.free(expected_str);
+
+            log.err("Failed test for file: `{s}`.\nERROR: {}\nACTUAL: {s}\nEXPECTED: {s}", .{
+                entry.path,
+                err,
+                tokens_str,
+                expected_str,
+            });
             no_failures = false;
         };
     }

@@ -1,18 +1,24 @@
 def1 = 15
+
+
 def2 a b = 10
 
 
 def3 oca = oca
 
+
 ---
 TopLevelName def1
 Assignment
 IntLiteral 15
+
 TopLevelName def2
 FuncArgument a
 FuncArgument b
 Assignment
 IntLiteral 10
+
 TopLevelName def3
 FuncArgument oca
+Assignment
 Variable oca

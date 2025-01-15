@@ -1,10 +1,22 @@
-addStatic = 2 + 10
-addPartial a = a+57
+addStatic =
+	2 +  10
+
+
+addPartial a =
+	a+57
+
+
 addGeneric a b= a+b
 
+
 sub a b = a-b
+
+
 mult a b = a*b
+
+
 div a b = a/b
+
 
 ---
 TopLevelName addStatic
