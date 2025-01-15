@@ -161,11 +161,12 @@ fn tokenize(alloc: std.mem.Allocator, r: *reader.PeekableReader) !std.ArrayList(
                         parser_state = .DeclarationBody;
                     },
                     else => {
-                        var argNameBuffer = std.ArrayList(u8).init(alloc);
-                        defer argNameBuffer.deinit();
+                        var buffer = std.ArrayList(u8).init(alloc);
+                        defer buffer.deinit();
 
-                        try r.streamUntilWhitespace(argNameBuffer.writer());
-                        const argName = try argNameBuffer.toOwnedSlice();
+                        try r.streamUntilReaches(buffer.writer(), &[_]u8{ ' ', '=', '\t', '\r' });
+                        // try r.streamUntilWhitespace(buffer.writer());
+                        const argName = try buffer.toOwnedSlice();
 
                         try tokens.append(.{ .value = argName, .type = .FuncArgument });
                     },
@@ -226,7 +227,18 @@ fn tokenize(alloc: std.mem.Allocator, r: *reader.PeekableReader) !std.ArrayList(
                             var buffer = std.ArrayList(u8).init(alloc);
                             defer buffer.deinit();
 
-                            try r.streamUntilWhitespace(buffer.writer());
+                            try r.streamUntilReaches(buffer.writer(), &[_]u8{
+                                ' ',
+                                '\t',
+                                '\r',
+                                '\n',
+                                '+',
+                                '-',
+                                '*',
+                                '/',
+                                '.',
+                            });
+                            // try r.streamUntilWhitespace(buffer.writer());
                             break :get_value try buffer.toOwnedSlice();
                         };
 

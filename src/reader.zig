@@ -57,6 +57,19 @@ pub const PeekableReader = struct {
         }
     }
 
+    /// Streams bytes until it reaches any of the limits bytes specified.
+    /// It doesn't consume the limit.
+    pub fn streamUntilReaches(s: *PeekableReader, writer: anytype, comptime limits: []const u8) !void {
+        while (true) : (_ = s.readByte() catch unreachable) {
+            const next_byte = s.peekByte() orelse return;
+            inline for (limits) |limit_byte| {
+                if (next_byte == limit_byte) {
+                    return;
+                }
+            } else try writer.writeByte(next_byte);
+        }
+    }
+
     /// Streams bytes to the writer until it reaches a non number byte or EOF.
     /// It doesn't consumes the non number byte!
     pub fn streamUntilNotNumber(s: *PeekableReader, writer: anytype) !void {
