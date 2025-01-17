@@ -7,6 +7,8 @@ A functional programming language for making back-ends you can love!
 
 If you know [Elm](https://elm-lang.org/) or [Roc](https://www.roc-lang.org/) then you already know Vulpes!
 
+If you already know [Gren](https://gren-lang.org/book/)... Why are you here? Go back to the promised land.
+
 ## Simple HTTP Example
 
 ```vulpes
@@ -113,3 +115,21 @@ onMessage ctx req =
 			}
 	
 ```
+
+## Roadmap
+
+- \[ \] Lexer
+
+- \[ \] Treesitter grammar
+
+- \[ \] Syntax Analysis
+
+- \[ \] Semantic Analysis
+
+- \[ \] IR
+
+- \[ \] Code Generator
+
+- \[ \] LSP
+
+- \[ \] Optimizers
