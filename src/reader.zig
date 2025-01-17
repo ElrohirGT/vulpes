@@ -1,4 +1,5 @@
 const std = @import("std");
+const utils = @import("./utils.zig");
 
 pub const PeekableReader = struct {
     _peek_cache: ?u8 = null,
@@ -19,6 +20,7 @@ pub const PeekableReader = struct {
     }
 
     /// Reads a byte from the stream.
+    /// It can only fail if it reaches EOF.
     pub fn readByte(s: *PeekableReader) !u8 {
         if (s._peek_cache) |byte| {
             s._peek_cache = null;
@@ -45,28 +47,18 @@ pub const PeekableReader = struct {
     /// Writes to the writer until it encounters a whitespace.
     /// It doesn't consume the whitespace.
     pub fn streamUntilWhitespace(s: *PeekableReader, writer: anytype) !void {
-        while (true) {
-            const nextByte = s.peekByte() orelse return;
-            switch (nextByte) {
-                ' ', '\t', '\r' => return,
-                else => {
-                    const byte = s.readByte() catch unreachable;
-                    try writer.writeByte(byte);
-                },
-            }
+        while (!utils.isByteIn(s.peekByte() orelse return, &[_]u8{ ' ', '\t', '\r' })) {
+            const byte = s.readByte() catch unreachable;
+            try writer.writeByte(byte);
         }
     }
 
     /// Streams bytes until it reaches any of the limits bytes specified.
     /// It doesn't consume the limit.
     pub fn streamUntilReaches(s: *PeekableReader, writer: anytype, comptime limits: []const u8) !void {
-        while (true) : (_ = s.readByte() catch unreachable) {
-            const next_byte = s.peekByte() orelse return;
-            inline for (limits) |limit_byte| {
-                if (next_byte == limit_byte) {
-                    return;
-                }
-            } else try writer.writeByte(next_byte);
+        while (!utils.isByteIn(s.peekByte() orelse return, limits)) {
+            const byte = s.readByte() catch unreachable;
+            try writer.writeByte(byte);
         }
     }
 
@@ -91,6 +83,20 @@ pub const PeekableReader = struct {
         while (true) {
             const byte = s.readByte() catch return;
             try writer.writeByte(byte);
+        }
+    }
+
+    /// Keeps reading elements until it reaches one of the limits!
+    pub fn discardUntil(s: *PeekableReader, comptime limits: []const u8) void {
+        while (!utils.isByteIn(s.peekByte() orelse return, limits)) {
+            _ = s.readByte() catch unreachable;
+        }
+    }
+
+    /// Keeps reading elements until it reaches a character different that the ones provided.
+    pub fn discardWhile(s: *PeekableReader, comptime chars: []const u8) void {
+        while (utils.isByteIn(s.peekByte() orelse return, chars)) {
+            _ = s.readByte() catch unreachable;
         }
     }
 };

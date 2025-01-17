@@ -1,5 +1,6 @@
 const std = @import("std");
 const reader = @import("./reader.zig");
+const utils = @import("./utils.zig");
 
 const TokenType = enum {
     FuncArgument,
@@ -7,9 +8,16 @@ const TokenType = enum {
     TopLevelName,
     Variable,
 
+    // Access operators
+    Point,
+
     // Assignment operators
     Assignment,
     Colon,
+
+    // Type declarations
+    FuncArrow,
+    Type,
 
     // Operation tokens
     SumOperator,
@@ -89,6 +97,9 @@ pub fn main() !void {
     _ = try tokenize(alloc, &peek_reader);
 }
 
+const VAR_LIMITS = " \t\r\n+-*/.:";
+const NON_EOL_WHITESPACE = " \t\r";
+
 fn tokenize(alloc: std.mem.Allocator, r: *reader.PeekableReader) !std.ArrayList(Token) {
     var parser_state = State.TopLevelDeclaration;
     var tokens = std.ArrayList(Token).init(alloc);
@@ -127,11 +138,11 @@ fn tokenize(alloc: std.mem.Allocator, r: *reader.PeekableReader) !std.ArrayList(
                         parser_state = .EndComment;
                     },
                     else => {
-                        var topLevelNameBuffer = std.ArrayList(u8).init(alloc);
-                        defer topLevelNameBuffer.deinit();
+                        var buffer = std.ArrayList(u8).init(alloc);
+                        defer buffer.deinit();
 
-                        try r.streamUntilWhitespace(topLevelNameBuffer.writer());
-                        const topLevelName = try topLevelNameBuffer.toOwnedSlice();
+                        try r.streamUntilReaches(buffer.writer(), VAR_LIMITS);
+                        const topLevelName = try buffer.toOwnedSlice();
 
                         try tokens.append(.{ .value = topLevelName, .type = .TopLevelName });
 
@@ -141,6 +152,7 @@ fn tokenize(alloc: std.mem.Allocator, r: *reader.PeekableReader) !std.ArrayList(
                                 _ = r.readByte() catch unreachable;
                                 try tokens.append(.{ .type = .Colon });
                                 parser_state = .FirmDeclaration;
+                                r.discardWhile(" \t\r");
                             } else {
                                 parser_state = .DeclarationParams;
                             }
@@ -227,18 +239,7 @@ fn tokenize(alloc: std.mem.Allocator, r: *reader.PeekableReader) !std.ArrayList(
                             var buffer = std.ArrayList(u8).init(alloc);
                             defer buffer.deinit();
 
-                            try r.streamUntilReaches(buffer.writer(), &[_]u8{
-                                ' ',
-                                '\t',
-                                '\r',
-                                '\n',
-                                '+',
-                                '-',
-                                '*',
-                                '/',
-                                '.',
-                            });
-                            // try r.streamUntilWhitespace(buffer.writer());
+                            try r.streamUntilReaches(buffer.writer(), VAR_LIMITS);
                             break :get_value try buffer.toOwnedSlice();
                         };
 
@@ -246,7 +247,55 @@ fn tokenize(alloc: std.mem.Allocator, r: *reader.PeekableReader) !std.ArrayList(
                     },
                 }
             },
-            .FirmDeclaration => unreachable,
+            .FirmDeclaration => firm_declaration_block: {
+                {
+                    var buffer = std.ArrayList(u8).init(alloc);
+                    defer buffer.deinit();
+
+                    try r.streamUntilReaches(buffer.writer(), VAR_LIMITS);
+                    try tokens.append(.{ .value = buffer.toOwnedSlice() catch unreachable, .type = .Type });
+                }
+
+                // Discard whitespace...
+                r.discardWhile(NON_EOL_WHITESPACE);
+
+                const stopping_character = r.peekByte();
+                if (stopping_character == null) {
+                    break :firm_declaration_block;
+                }
+
+                switch (stopping_character.?) {
+                    // Possibly a function arrow coming
+                    '-' => {
+                        _ = r.readByte() catch unreachable;
+                        if (r.peekByte() == '>') {
+                            try tokens.append(.{ .type = .FuncArrow });
+                            _ = r.readByte() catch unreachable;
+                            r.discardWhile(NON_EOL_WHITESPACE);
+                        } else {
+                            // invalid syntax!
+                            // TODO: Handle error...
+                            unreachable;
+                        }
+                    },
+                    // What we just read was most likely a module!
+                    '.' => {
+                        _ = r.readByte() catch unreachable;
+                        try tokens.append(.{ .type = .Point });
+                    },
+                    // End of firm!
+                    '\n' => {
+                        _ = r.readByte() catch unreachable;
+                        parser_state = .TopLevelDeclaration;
+                    },
+                    '0'...'9', '*', '/', '+' => {
+                        // invalid syntax detected!
+                        // TODO: Handle error...
+                        unreachable;
+                    },
+                    else => {},
+                }
+            },
         }
 
         const tokens_str = try Token.arrayToString(tokens, alloc);

@@ -1,0 +1,40 @@
+
+constant:Float
+
+
+genericConstant: List    Int
+
+
+add  : Int-> Int ->		Int
+
+
+append: List Int ->			Int -> List Int
+
+
+---
+TopLevelName constant
+Colon
+Type Float
+
+TopLevelName genericConstant
+Colon
+Type List
+Type Int
+
+TopLevelName add
+Colon
+Type Int
+FuncArrow
+Type Int
+FuncArrow
+Type Int
+
+TopLevelName append
+Colon
+Type List
+Type Int
+FuncArrow
+Type Int
+FuncArrow
+Type List
+Type Int
