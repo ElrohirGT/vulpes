@@ -27,7 +27,6 @@ const TokenType = enum {
 
     // Comments
     Comment,
-    DocComment,
     EndComment,
 };
 
@@ -122,6 +121,18 @@ fn tokenize(alloc: std.mem.Allocator, r: *reader.PeekableReader) !std.ArrayList(
                         continue;
                     },
                     '0'...'9' => return error.ExpectedTopLevelDeclarationButGotNumber,
+                    '#' => {
+                        _ = r.readByte() catch unreachable;
+                        var buffer = std.ArrayList(u8).init(alloc);
+                        defer buffer.deinit();
+
+                        if (r.peekByte() == ' ') {
+                            _ = r.readByte() catch unreachable;
+                        }
+
+                        try r.streamUntilReaches(buffer.writer(), "\n");
+                        try tokens.append(.{ .value = try buffer.toOwnedSlice(), .type = .Comment });
+                    },
                     '-' => endCommentBlock: {
                         _ = r.readByte() catch unreachable;
 
